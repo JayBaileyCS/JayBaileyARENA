@@ -1,5 +1,6 @@
 import math
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 def calculate_positional_encoding(num_tokens, num_dims):
@@ -16,6 +17,16 @@ def plot_positional_encoding(num_tokens, num_dims):
     plt.show()
 
 
-plot_positional_encoding(32, 128)
+def cosine_similarity(vec1, vec2):
+    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
 
 
+def get_dot_product_graph(num_tokens, num_dims):
+    pe = calculate_positional_encoding(num_tokens, num_dims)
+    dots = np.array([cosine_similarity(pe[i], pe[j]) for i in range(len(pe)) for j in range(len(pe))])
+    min_dots, max_dots = min(dots), max(dots)
+    plt.imshow(dots.reshape(num_tokens, num_tokens), cmap="Blues", vmin=min_dots, vmax=max_dots)
+    plt.show()
+
+
+get_dot_product_graph(32, 128)
