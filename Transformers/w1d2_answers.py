@@ -31,9 +31,9 @@ def single_head_attention(Q: t.Tensor, K: t.Tensor, V: t.Tensor) -> t.Tensor:
     Return: shape (batch, seq_len, hidden_size)
     """
     K = einops.rearrange(K, 'b s h -> b h s')
-    attention = t.einsum('bsh, bhs -> bss', Q, K)
-    attention = t.softmax(attention / math.sqrt(Q.shape[-1]), dim=-1)  # Equal to head size
-    return t.einsum('bss, bsh -> bse', attention, V)  # Unsure about this one.
+    attention = t.einsum('bsh, bht -> bst', Q, K)
+    attention = t.softmax(attention / math.sqrt(Q.shape[-1]), dim=-1)
+    return t.einsum('bst, btv -> bsv', attention, V)  # Unsure about this one.
 
 
 def single_head_masked_attention(Q: t.Tensor, K: t.Tensor, V: t.Tensor) -> t.Tensor:
@@ -49,8 +49,14 @@ def single_head_masked_attention(Q: t.Tensor, K: t.Tensor, V: t.Tensor) -> t.Ten
     Return: shape (batch, seq_len, embedding_size)
     """
     K = einops.rearrange(K, 'b s h -> b h s')
-    attention = t.einsum('bsh, bhs -> bss', Q, K)
+    attention = t.einsum('bsh, bht -> bst', Q, K)
     attention = attention + t.triu(t.ones_like(attention) * float("-inf"), diagonal=1)  # Add mask
-    attention = t.softmax(attention / math.sqrt(Q.shape[-1]), dim=-1)  # Equal to head size
-    return t.einsum('bss, bsh -> bse', attention, V)  # Unsure about this one.
+    attention = t.softmax(attention / math.sqrt(Q.shape[-1]), dim=-1)
+    return t.einsum('bst, btv -> bsv', attention, V)  # Unsure about this one.
 
+
+Q = t.arange(42).reshape(2, 7, 3).type(t.float)
+K = t.arange(42).reshape(2, 7, 3).type(t.float) * 0.5
+V = t.arange(42).reshape(2, 7, 3).type(t.float) * 0.8
+
+print(single_head_masked_attention(Q, K, V))
