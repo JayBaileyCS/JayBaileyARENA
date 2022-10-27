@@ -8,7 +8,7 @@ def calculate_positional_encoding(num_tokens, num_dims):
 
 
 def calculate_encoding(i, d, num_dims):
-    theta = i / (10000 ** (2 * d / num_dims))
+    theta = i / (10000 ** (d / num_dims))
     return math.sin(theta) if d % 2 == 0 else math.cos(theta)
 
 
