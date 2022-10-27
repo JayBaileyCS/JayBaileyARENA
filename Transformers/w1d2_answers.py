@@ -51,3 +51,10 @@ def single_head_masked_attention(Q: t.Tensor, K: t.Tensor, V: t.Tensor) -> t.Ten
     attention = attention + t.triu(t.ones_like(attention) * float("-inf"), diagonal=1)  # Add mask
     attention = t.softmax(attention / math.sqrt(Q.shape[-1]), dim=-1)
     return t.einsum('bst, btv -> bsv', attention, V)  # Unsure about this one.
+
+
+Q = t.arange(2 * 7 * 4).reshape(2, 7, 4).type(t.float32)
+K = Q * 0.5
+V = Q * 0.8
+num_heads = 1
+print(single_head_masked_attention(Q, K, V))
