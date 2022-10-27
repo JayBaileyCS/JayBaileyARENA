@@ -23,16 +23,17 @@ def single_head_attention(Q: t.Tensor, K: t.Tensor, V: t.Tensor) -> t.Tensor:
 
     With this function, you can ignore masking.
 
-    Q: shape (batch, embedding_size, head_size)
-    K: shape (batch, embedding_size, head_size)
-    V: shape (batch, embedding_size, value_size)
+    Q: shape (batch, seq_length, hidden_size)
+    K: shape (batch, seq_length, hidden_size)
+    V: shape (batch, seq_length, hidden_size)
+    hidden_size = head_size * number_of_heads.
 
-    Return: shape (batch, seq_len, embedding_size)
+    Return: shape (batch, seq_len, hidden_size)
     """
-    K = einops.rearrange(K, 'b e h -> b h e')
-    attention = t.einsum('beh, bhe -> bee', Q, K)
+    K = einops.rearrange(K, 'b s h -> b h s')
+    attention = t.einsum('bsh, bhs -> bss', Q, K)
     attention = t.softmax(attention / math.sqrt(Q.shape[-1]), dim=-1)  # Equal to head size
-    return t.einsum('bEe, bev -> bEv', attention, V)  # Unsure about this one.
+    return t.einsum('bss, bsh -> bse', attention, V)  # Unsure about this one.
 
 
 def single_head_masked_attention(Q: t.Tensor, K: t.Tensor, V: t.Tensor) -> t.Tensor:
@@ -47,9 +48,9 @@ def single_head_masked_attention(Q: t.Tensor, K: t.Tensor, V: t.Tensor) -> t.Ten
 
     Return: shape (batch, seq_len, embedding_size)
     """
-    K = einops.rearrange(K, 'b e h -> b h e')
-    attention = t.einsum('beh, bhe -> bee', Q, K)
+    K = einops.rearrange(K, 'b s h -> b h s')
+    attention = t.einsum('bsh, bhs -> bss', Q, K)
     attention = attention + t.triu(t.ones_like(attention) * float("-inf"), diagonal=1)  # Add mask
     attention = t.softmax(attention / math.sqrt(Q.shape[-1]), dim=-1)  # Equal to head size
-    return t.einsum('bEe, bev -> bEv', attention, V)  # Unsure about this one.
+    return t.einsum('bss, bsh -> bse', attention, V)  # Unsure about this one.
 
