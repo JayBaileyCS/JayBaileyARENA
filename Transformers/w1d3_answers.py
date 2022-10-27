@@ -1,5 +1,6 @@
 import torch as t
 import einops
+from fancy_einsum import einsum
 
 
 def multihead_masked_attention(Q: t.Tensor, K: t.Tensor, V: t.Tensor, num_heads: int):
@@ -13,11 +14,11 @@ def multihead_masked_attention(Q: t.Tensor, K: t.Tensor, V: t.Tensor, num_heads:
     Q = einops.rearrange(Q, 'b s (h hs) -> b h s hs', h=num_heads)
     K = einops.rearrange(K, 'b s (h hs) -> b h s hs', h=num_heads)
     V = einops.rearrange(V, 'b s (h hs) -> b h s hs', h=num_heads)
-    attention = t.einsum('bhqt,bhkt->bhqk', Q, K)
+    attention = einsum('batch heads seqQ hidden,batch heads seqK hidden->batch heads seqQ seqK', Q, K)
     attention = attention + t.triu(t.ones_like(attention) * float("-inf"), diagonal=1)
     probs = t.softmax(attention, dim=-1)
-    weighted_v = t.einsum('bnkh, bnsk -> bnsh', V, probs)
-    weighted_v = einops.rearrange(weighted_v, 'b h s hs -> b s (h hs)')
+    weighted_v = t.einsum('batch heads seqK hidden, batch heads seqQ seqK -> batch heads seqQ hidden', V, probs)
+    weighted_v = einops.rearrange(weighted_v, 'batch heads seq hidden -> batch seq (heads hidden)')
     return weighted_v  # Output needs to be applied?
 
 
@@ -42,6 +43,6 @@ class MultiheadMaskedAttention(t.nn.Module):
         W_V = self.W_QKV[:, :, self.hidden_size*2+1:]
         Q = t.einsum('bij, bjk -> bik', x, W_Q)
         K = t.einsum('bij, bjk -> bik', x, W_K)
-        V = t.einsum('bij, bjk -> biko', x, W_V)
+        V = t.einsum('bij, bjk -> bik', x, W_V)
         attention = multihead_masked_attention(Q, K, V, self.num_heads)
-        return t.einsum('bsh,bho->bso', attention, self.W_O)
+        return t.einsum('batch seq hidden, batch hidden output-> batch seq output', attention, self.W_O)
