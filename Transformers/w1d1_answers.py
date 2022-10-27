@@ -27,6 +27,3 @@ def get_dot_product_graph(num_tokens, num_dims):
     min_dots, max_dots = min(dots), max(dots)
     plt.imshow(dots.reshape(num_tokens, num_tokens), cmap="Blues", vmin=min_dots, vmax=max_dots)
     plt.show()
-
-
-get_dot_product_graph(32, 128)

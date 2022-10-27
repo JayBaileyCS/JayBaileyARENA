@@ -1,3 +1,4 @@
+import einops
 import torch as t
 from w1d1_answers import calculate_positional_encoding
 
@@ -12,5 +13,4 @@ class PositionalEncoding(t.nn.Module):
     def forward(self, x: t.Tensor) -> t.Tensor:
         """x: shape (batch, seq_len, embedding_dim)"""
         encoding = t.tensor(calculate_positional_encoding(self.embedding_dim, self.max_seq_len))
-        return x + encoding.repeat(x.shape[0], 1, 1)
-
+        return x + einops.repeat(encoding, 's e -> b s e', b=x.shape[0])
