@@ -7,19 +7,15 @@ def multihead_masked_attention(Q: t.Tensor, K: t.Tensor, V: t.Tensor, num_heads:
     """
     Implements multihead masked attention on the matrices Q, K and V.
 
-    Q: shape (batch, seq, nheads*headsize)
-    K: shape (batch, seq, nheads*headsize)
-    V: shape (batch, seq, nheads*headsize)
+    Q: shape (batch, nheads, seq, headsize)
+    K: shape (batch, nheads, seq, headsize)
+    V: shape (batch, nheads, seq, headsize)
     """
-    Q = einops.rearrange(Q, 'b s (h hs) -> b h s hs', h=num_heads)
-    K = einops.rearrange(K, 'b s (h hs) -> b h s hs', h=num_heads)
-    V = einops.rearrange(V, 'b s (h hs) -> b h s hs', h=num_heads)
     attention = einsum('batch heads seqQ hidden,batch heads seqK hidden->batch heads seqQ seqK', Q, K)
     attention = attention + t.triu(t.ones_like(attention) * float("-inf"), diagonal=1)
     probs = t.softmax(attention, dim=-1)
-    weighted_v = t.einsum('batch heads seqK hidden, batch heads seqQ seqK -> batch heads seqQ hidden', V, probs)
-    weighted_v = einops.rearrange(weighted_v, 'batch heads seq hidden -> batch seq (heads hidden)')
-    return weighted_v  # Output needs to be applied?
+    weighted_v = einsum('batch heads seqK hidden, batch heads seqQ seqK -> batch heads seqQ hidden', V, probs)
+    return weighted_v
 
 
 class MultiheadMaskedAttention(t.nn.Module):
@@ -30,7 +26,9 @@ class MultiheadMaskedAttention(t.nn.Module):
         super().__init__()
         self.hidden_size = hidden_size
         self.num_heads = num_heads
-        self.head_size = hidden_size / num_heads
+        self.head_size = hidden_size // num_heads
+        self.W_QKV = t.nn.Linear(self.hidden_size, self.num_heads * self.head_size * 3)
+        self.W_O = t.nn.Linear(self.num_heads * self.head_size, self.hidden_size)
 
     def forward(self, x: t.Tensor) -> t.Tensor:
         """
@@ -38,11 +36,21 @@ class MultiheadMaskedAttention(t.nn.Module):
 
         Return: shape (batch, seq, hidden_size)
         """
-        W_Q = self.W_QKV[:, :, :self.hidden_size]
-        W_K = self.W_QKV[:, :, self.hidden_size+1:self.hidden_size*2]
-        W_V = self.W_QKV[:, :, self.hidden_size*2+1:]
-        Q = t.einsum('bij, bjk -> bik', x, W_Q)
-        K = t.einsum('bij, bjk -> bik', x, W_K)
-        V = t.einsum('bij, bjk -> bik', x, W_V)
+        batch, seq, hidden_size = x.shape[0], x.shape[1], x.shape[2]
+        QKV = self.W_QKV(x)
+        QKV = einops.rearrange(QKV, 'b s (h triplehs) -> b h s triplehs', h=self.num_heads)
+        Q = QKV[:, :, :, :self.head_size]
+        K = QKV[:, :, :, self.head_size:self.head_size*2]
+        V = QKV[:, :, :, self.head_size*2:]
+        assert Q.shape == K.shape == V.shape == t.Size([batch, self.num_heads, seq, self.head_size])
         attention = multihead_masked_attention(Q, K, V, self.num_heads)
-        return t.einsum('batch seq hidden, batch hidden output-> batch seq output', attention, self.W_O)
+        assert attention.shape == t.Size([batch, self.num_heads, seq, self.head_size])
+        attention = einops.rearrange(attention, 'b n s h -> b s (n h)')
+        return self.W_O(attention)
+        # return einsum('batch heads seqQ headsize, batch seqQ hidden -> batch seqQ hidden', attention, output)
+
+
+t.manual_seed(420)
+m = MultiheadMaskedAttention(6, 2)
+x = t.linspace(0, 42, 2 * 3 * 6).reshape(2, 3, 6)
+print(m(x))
