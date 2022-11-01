@@ -3,6 +3,7 @@ import torch as t
 import einops
 from fancy_einsum import einsum
 from torch.utils.data import DataLoader, Dataset
+import tqdm
 
 from Transformers.w1d1_answers import calculate_positional_encoding
 
@@ -132,23 +133,29 @@ class DecoderOnlyTransformer(t.nn.Module):
 
 
 def train_transformer(data, epochs):
-    config = TransformerConfig(1, 2, 10, 96, 10)
-    transformer = DecoderOnlyTransformer(config, 2).train()
+    config = TransformerConfig(2, 4, 10, 96, 6)
+    transformer = DecoderOnlyTransformer(config, 16).train()
     optimiser = t.optim.Adam(transformer.parameters())
 
-    for epoch in range(epochs):
+    for epoch in tqdm.tqdm(range(epochs)):
+        errors = 0
         for (x, y) in data:
+            x, y = x.squeeze(), y.squeeze()
             output = transformer(x)
             output = einops.rearrange(output, 'batch sequence vocab -> (batch sequence) vocab')
             y = einops.rearrange(y, 'batch sequence -> (batch sequence)')
             loss_fn = t.nn.CrossEntropyLoss()
-            loss = loss_fn(output, y)
+            loss = loss_fn(output, y.long())
+            argmax = t.argmax(output, dim=1)
+            for i in range(data.batch_size * config.max_seq_len):
+                if argmax[i] != y[i] and i % 6 <= 3:
+                    errors += 1
 
             loss.backward()
             optimiser.step()
             optimiser.zero_grad()
 
-            print(f'Epoch: {epoch} Loss: {loss}')
+        print(f'Epoch: {epoch} Loss: {loss}, Errors: {errors}')
 
 
 class CustomTextDataset(Dataset):
@@ -165,7 +172,10 @@ class CustomTextDataset(Dataset):
         return tuple([text, label])
 
 
-# config = TransformerConfig(12, 12, 50257, 768, 512) (GPT-2 values)
-dataset = CustomTextDataset([t.tensor([1, 2, 4, 0, 3, 9])], [t.tensor([9, 3, 0, 4, 2, 1])])
-data = DataLoader(dataset)
-train_transformer(data, 100)
+dataset_size = 1024
+batch_size = 128
+text = [(t.rand(size=(1, 6)) * 10).int() for i in range(dataset_size)]
+labels = [t.flip(i, dims=[-1]) for i in text]
+dataset = CustomTextDataset(text, labels)
+data = DataLoader(dataset, batch_size=batch_size)
+train_transformer(data, 10)
