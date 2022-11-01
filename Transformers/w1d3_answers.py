@@ -83,7 +83,7 @@ class MLP(t.nn.Module):
             t.nn.Linear(self.config.hidden_size, self.config.hidden_size * 4),
             t.nn.GELU(),
             t.nn.Linear(self.config.hidden_size * 4, self.config.hidden_size),
-            t.nn.Dropout(0.1)
+            t.nn.Dropout(self.config.dropout)
         )
 
     def forward(self, x: t.Tensor) -> t.Tensor:
@@ -95,33 +95,27 @@ class DecoderBlock(t.nn.Module):
     def __init__(self, config: TransformerConfig):
         super().__init__()
         self.config = config
-        self.model = t.nn.Sequential(
-            MultiheadMaskedAttention(self.config.hidden_size, self.config.num_heads),
-            t.nn.LayerNorm(self.config.hidden_size),
-            MLP(self.config),
-            t.nn.LayerNorm(self.config.hidden_size)
-        )
+        self.attention = MultiheadMaskedAttention(self.config.hidden_size, self.config.num_heads)
+        self.ln = t.nn.LayerNorm(self.config.hidden_size)
+        self.mlp = MLP(self.config)
 
     def forward(self, x: t.Tensor) -> t.Tensor:
-        return self.model(x)
+        return x + self.ln(self.attention(x)) + self.ln(self.mlp(x))
 
 
 class DecoderOnlyTransformer(t.nn.Module):
 
-    def __init__(self, config: TransformerConfig, batch: int):
+    def __init__(self, config: TransformerConfig):
         super().__init__()
         self.config = config
-        self.batch = batch
         self.token_embedding = t.nn.Embedding(self.config.vocab_size, self.config.hidden_size)
         self.positional_embedding = PositionalEncoding(self.config.hidden_size, self.config.max_seq_len)
+        self.decoder_blocks = t.nn.Sequential(
+            *[DecoderBlock(config) for _ in range(config.num_layers)]
+        )
         self.model = t.nn.Sequential(
-            t.nn.Dropout(0.1),
-            DecoderBlock(self.config),
-            DecoderBlock(self.config),
-            DecoderBlock(self.config),
-            DecoderBlock(self.config),
-            DecoderBlock(self.config),
-            DecoderBlock(self.config),  # TODO: Loop this.
+            t.nn.Dropout(self.config.dropout),
+            self.decoder_blocks,
             t.nn.LayerNorm(self.config.hidden_size)
         )
 
@@ -132,9 +126,7 @@ class DecoderOnlyTransformer(t.nn.Module):
         return x @ self.token_embedding.weight.T
 
 
-def train_transformer(data, epochs):
-    config = TransformerConfig(2, 4, 10, 96, 6)
-    transformer = DecoderOnlyTransformer(config, 16).train()
+def train_transformer(data, epochs, transformer, dataset_size):
     optimiser = t.optim.Adam(transformer.parameters())
 
     for epoch in tqdm.tqdm(range(epochs)):
@@ -146,36 +138,47 @@ def train_transformer(data, epochs):
             y = einops.rearrange(y, 'batch sequence -> (batch sequence)')
             loss_fn = t.nn.CrossEntropyLoss()
             loss = loss_fn(output, y.long())
-            argmax = t.argmax(output, dim=1)
+            argmax = t.argmax(output, dim=-1)
             for i in range(data.batch_size * config.max_seq_len):
-                if argmax[i] != y[i] and i % 6 < 3:
+                if argmax[i] != y[i] and i % 6 > 2:
                     errors += 1
 
             loss.backward()
             optimiser.step()
             optimiser.zero_grad()
 
-        print(f'Epoch: {epoch} Loss: {loss}, Errors: {errors}/3072')
+        print(f'Epoch: {epoch} Loss: {loss}, Errors: {errors}/{dataset_size * config.max_seq_len / 2}')
 
 
 class CustomTextDataset(Dataset):
-    def __init__(self, text, labels):
-        self.labels = labels
-        self.text = text
+    def __init__(self, vocab_size: int, seq_len: int, datasize: int):
+        self.datasize = datasize
+        self.vocab_size = vocab_size
+        self.seq_len = seq_len
 
     def __len__(self):
-        return len(self.labels)
+        return self.datasize
 
     def __getitem__(self, idx):
-        label = self.labels[idx]
-        text = self.text[idx]
-        return tuple([text, label])
+        input = t.randint(0, self.vocab_size, (self.seq_len,))
+        target = t.flip(input, dims=(0,))
+        return input, target
 
 
-dataset_size = 1024
+dataset_size = 10240
 batch_size = 128
+config = TransformerConfig(6, 4, 10, 96, 6)
+transformer = DecoderOnlyTransformer(config).train()
+
 text = [(t.rand(size=(1, 6)) * 10).int() for i in range(dataset_size)]
 labels = [t.flip(i, dims=[-1]) for i in text]
-dataset = CustomTextDataset(text, labels)
+dataset = CustomTextDataset(10, 6, dataset_size)
 data = DataLoader(dataset, batch_size=batch_size)
-train_transformer(data, 10)
+train_transformer(data, 10, transformer, dataset_size)
+
+transformer.eval()
+for i in range(10):
+    with t.inference_mode():
+        input, target = text[i], labels[i]
+        output = transformer(input).argmax(dim=-1)
+        print(input, output, target)
