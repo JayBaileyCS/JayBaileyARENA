@@ -148,14 +148,14 @@ def train_transformer(data, epochs):
             loss = loss_fn(output, y.long())
             argmax = t.argmax(output, dim=1)
             for i in range(data.batch_size * config.max_seq_len):
-                if argmax[i] != y[i] and i % 6 <= 3:
+                if argmax[i] != y[i] and i % 6 < 3:
                     errors += 1
 
             loss.backward()
             optimiser.step()
             optimiser.zero_grad()
 
-        print(f'Epoch: {epoch} Loss: {loss}, Errors: {errors}')
+        print(f'Epoch: {epoch} Loss: {loss}, Errors: {errors}/3072')
 
 
 class CustomTextDataset(Dataset):
